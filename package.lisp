@@ -10,6 +10,6 @@
            #:remove-entity
            #:defsys
            #:do-system
-           #:cycle-system))
+           #:cycle-systems))
 
 (in-package :cl-ecs)
