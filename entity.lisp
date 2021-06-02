@@ -109,3 +109,10 @@
   "Remove an entity."
   (remhash id (ecs-entities *ecs*))
   (cache-system-entities))
+  
+(defun remove-all-entities ()
+  "Removes all entities."
+  (let ((es (all-entities)))
+    (loop for id in es
+          do (remhash id (ecs-entities *ecs*)))
+    (cache-system-entities)))
