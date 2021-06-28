@@ -69,7 +69,7 @@
    .
    returns t "
   (let ((r (gensym))(et (gensym)))
-    `(let ((,r nil)(,et (entity-tags id)))
+    `(let ((,r nil)(,et (entity-tags ,id)))
       (loop for (test form) in ,clauses by #'cddr do
         (when (member test ,et)
           (setq ,r t)
@@ -124,11 +124,11 @@
 
 (defun remove-entity (id)
   "Stages an entity to be removed."
-  (push id (ecs-rip *ecs*)))
+  (push id *graveyard*))
 
 (defun remove-all-entities ()
   "Stages all entities to be removed."
-  (setf (ecs-rip *ecs*) 'remove-all))
+  (setf *graveyard* 'remove-all))
 
 (defun delete-entity (id)
   "Remove an entity.

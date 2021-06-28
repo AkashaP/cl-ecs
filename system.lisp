@@ -131,12 +131,13 @@ parallel processing of entities."
              (lambda (&rest x)
                ;; Prevent entities from comparing themselves if they match multiple families
                (when (not (duplicatesp x))
-                 (setf result (apply #'%do-entities system x))))
+                 (setf result (apply #'%do-entities system x)))
+               )
              (system-entities system))
-      (when (eq (ecs-rip *ecs*) 'remove-all)
+      (when (eq *graveyard* 'remove-all)
          (delete-all-entities)
-         (setf (ecs-rip *ecs*) (list)))
-       (loop :for e :in (ecs-rip *ecs*)
+         (setf *graveyard* (list)))
+       (loop :for e :in *graveyard*
              do (delete-entity e))
       result)))
 
