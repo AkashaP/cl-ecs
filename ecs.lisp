@@ -5,7 +5,8 @@
 (defstruct ecs
   (entities (make-hash-table))
   (components (make-hash-table))
-  (systems (make-hash-table)))
+  (systems (make-hash-table))
+  (rip (list)))
 
 (defun init-ecs ()
   "Initialize a new ECS system."

@@ -5,7 +5,8 @@
   :license "MIT"
   :description "An implementation of the Entity-Component-System pattern mostly used in game development."
   :depends-on (#:alexandria
-               #:graph)
+               #:graph
+               #:metatilities)
   :serial t
   :components ((:file "package")
                (:file "util")

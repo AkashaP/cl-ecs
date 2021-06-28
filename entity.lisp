@@ -10,8 +10,8 @@
   (mapcar
    (lambda (component)
      (loop :with name = (car component)
-           :for (k . v) :in (plist-alist (cdr component))
-           :collect (make-keyword (format nil "~A/~A" name k)) :into slots
+           :for (k . v) :in (alexandria:plist-alist (cdr component))
+           :collect (alexandria:make-keyword (format nil "~A/~A" name k)) :into slots
            :collect (gensym (symbol-name k)) :into vars
            :collect v :into values
            :finally (return (list name slots (mapcar #'list vars values)))))
@@ -34,7 +34,7 @@
 
 (defun all-entities ()
   "Get a list of all defined entities."
-  (hash-table-keys (ecs-entities *ecs*)))
+  (alexandria:hash-table-keys (ecs-entities *ecs*)))
 
 (defun entity-components (id)
   "Get a list of all components of the specified entity."
@@ -59,6 +59,22 @@
 (defun some-tags-p (id &rest tags)
   "Check if an entity has some of the specified tags."
   (any tags (entity-tags id)))
+
+(defmacro act-tags (id &rest clauses)
+  "Executes actions based on the presence of tags.
+   Like cond but does not early-exit.
+   syntax:
+   act-tags {clause}* => result*
+   clause::= (test-form form*) 
+   .
+   returns t "
+  (let ((r (gensym))(et (gensym)))
+    `(let ((,r nil)(,et (entity-tags id)))
+      (loop for (test form) in ,clauses by #'cddr do
+        (when (member test ,et)
+          (setq ,r t)
+          (funcall form)))
+      ,r)))
 
 (defun add-tags (id &rest tags)
   "Add some tags to the specified entity."
@@ -100,17 +116,28 @@
   (let ((id (new-id)))
     (setf (gethash id (ecs-entities *ecs*)) (make-entity))
     (copy-prototype prototype id)
-    (cache-system-entities)
     (loop :for (name . attrs) :in components
           :do (add-component id name attrs))
+    ;;(cache-entity id)
+    (cache-system-entities)
     id))
 
 (defun remove-entity (id)
-  "Remove an entity."
+  "Stages an entity to be removed."
+  (push id (ecs-rip *ecs*)))
+
+(defun remove-all-entities ()
+  "Stages all entities to be removed."
+  (setf (ecs-rip *ecs*) 'remove-all))
+
+(defun delete-entity (id)
+  "Remove an entity.
+   DO NOT DO THIS IN A SYSTEM WHILE IT IS PROCESSING.
+   It will screw over iteration. Use remove-entity instead."
   (remhash id (ecs-entities *ecs*))
   (cache-system-entities))
-  
-(defun remove-all-entities ()
+
+(defun delete-all-entities ()
   "Removes all entities."
   (let ((es (all-entities)))
     (loop for id in es
