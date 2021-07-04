@@ -60,21 +60,23 @@
   "Check if an entity has some of the specified tags."
   (any tags (entity-tags id)))
 
-(defmacro act-tags (id &rest clauses)
-  "Executes actions based on the presence of tags.
-   Like cond but does not early-exit.
-   syntax:
-   act-tags {clause}* => result*
-   clause::= (test-form form*) 
-   .
-   returns t "
-  (let ((r (gensym))(et (gensym)))
-    `(let ((,r nil)(,et (entity-tags ,id)))
-      (loop for (test form) in ,clauses by #'cddr do
-        (when (member test ,et)
-          (setq ,r t)
-          (funcall form)))
-      ,r)))
+;; i dont know if i want to use eval
+;; (defmacro act-tags (id &rest clauses)
+;;   "Executes actions based on the presence of tags.
+;;    Like cond but does not early-exit.
+;;    syntax:
+;;    act-tags {clause}* => result*
+;;    clause::= (test-form form*) 
+;;    .
+;;    returns t "
+;;   (let ((r (gensym))(et (gensym)))
+;;     `(let ((,r nil)(,et (entity-tags ,id)))
+;;        (loop for (test form) in ',clauses by #'cddr do
+;;          (princ test)
+;;         (when (member test ,et)
+;;           (setq ,r form)
+;;           (eval form)))
+;;       ,r)))
 
 (defun add-tags (id &rest tags)
   "Add some tags to the specified entity."
