@@ -4,7 +4,9 @@
   processing
   required
   grouping
-  entities)
+  entities
+  iteration ;; what kind of iteration function to use on the entities
+  runnable) ;; flag when grouping is sufficient to perform iteration
 
 ;; in most ECS a System owns one family, and uses the family matching patterns "All", "Any" and "None" but i find "All" the only sensible choice, especially since if you use "Any" you might have to distinctify each component in the system logic, defeating the purpose of ECS caching entities for us already
 ;; it also tends to treat all entities with similar behaviour, which I don't feel is the purpose of ECS
@@ -28,19 +30,97 @@
 ;; This syntax is a variant of defsys that specifies owned families in a letargs format
 ;;
 
-(defmacro defsys (name (&body letargs) &rest body)
+(defmacro defsys (name (&rest letargs) (&key iteration-function) &body body)
   (let ((entities (gensym)))
-    `(progn
+    `(labels ((flag (id &rest flags-to-set)
+                (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
+                  (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
+                    (map nil (lambda (x)
+                               (setf (gethash x eflags) t)
+                               (setf (gethash x eblame) ',name))
+                         flags-to-set))))
+              (mark (id &rest marks-to-set)
+                (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
+                  (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
+                    (map nil (lambda (x)
+                               (setf (gethash x emarks) t)
+                               (setf (gethash x eblame) ',name))
+                         marks-to-set))))
+              (demk (id &rest marks-to-set)
+                (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
+                  (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
+                    (map nil (lambda (x)
+                               (setf (gethash x emarks) nil)
+                               (setf (gethash x eblame) ',name))
+                         marks-to-set)))))
        (setf (gethash ',name (ecs-systems *ecs*))
              (make-system :processing t
                           :required ',(mapcar #'cadr letargs)
-                          :grouping ',(mapcar #'car letargs)))
+                          :grouping ',(mapcar #'car letargs)
+                          :iteration ,iteration-function))
+       (remove ',name *system-names*)
+       (setf *system-names* (append *system-names* '(,name)))
        (cache-system-entities)
        (defmethod %do-entities ((system (eql ',name)) &rest ,entities)
          (block ,name
            (destructuring-bind ,(mapcar #'car letargs) ,entities
-             ,@body)
-           )))))
+             ,@body))))))
+
+;; (defmacro defsys (name (&rest letargs) &body body)
+;;   `(defsys-i ,name ,letargs () ,@body))
+
+;;TODO verify letargs correctness
+;; (defmacro defsys (name (&rest letargs) (&key iteration-function) &body body)
+;;   (let ((entities (gensym)))
+;;     `(labels ((flag (id &rest flags-to-set)
+;;                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
+;;                   (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
+;;                     (map nil (lambda (x)
+;;                                (setf (gethash x eflags) t)
+;;                                (setf (gethash x eblame) ',name))
+;;                          flags-to-set))))
+;;               (mark (id &rest marks-to-set)
+;;                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
+;;                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
+;;                     (map nil (lambda (x)
+;;                                (setf (gethash x emarks) t)
+;;                                (setf (gethash x eblame) ',name))
+;;                          marks-to-set))))
+;;               (demk (id &rest marks-to-set)
+;;                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
+;;                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
+;;                     (map nil (lambda (x)
+;;                                (setf (gethash x emarks) nil)
+;;                                (setf (gethash x eblame) ',name))
+;;                          marks-to-set)))))
+;;        (setf (gethash ',name (ecs-systems *ecs*))
+;;              (make-system :processing t
+;;                           :required ',(mapcar #'cadr letargs)
+;;                           :grouping ',(mapcar #'car letargs)))
+;;        (setf *system-names* (append *system-names* '(,name)))
+;;        (cache-system-entities)
+;;        (defmethod %do-entities ((system (eql ',name)) &rest ,entities)
+;;          (block ,name
+;;            (destructuring-bind ,(mapcar #'car letargs) ,entities
+;;              ,@body))))))
+
+(defun mark (id &rest marks-to-set)
+  "Turns on a mark"
+  (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
+    (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
+      (map nil (lambda (x)
+                 (setf (gethash x emarks) t)
+                 (setf (gethash x eblame) nil))
+           marks-to-set))))
+
+(defun demk (id &rest marks-to-set)
+  "Turns off a mark"
+  (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
+    (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
+      (map nil (lambda (x)
+                 (setf (gethash x emarks) nil)
+                 (setf (gethash x eblame) nil))
+           marks-to-set))))
 
 (defmacro defsys-old (name (required grouping) &body body)
   "Define a new system."
@@ -55,12 +135,13 @@
            (destructuring-bind ,grouping ,entities
              ,@body))))))
 
-
 (defgeneric %do-entities (system &rest entities))
 
 (defun all-systems ()
   "Get a list of all defined systems."
-  (hash-table-keys (ecs-systems *ecs*)))
+  ;;(hash-table-keys (ecs-systems *ecs*))
+  *system-names*
+  )
 
 (defun system-processing (system)
   "Asks whether a system is processing.
@@ -77,6 +158,21 @@
     (when b
       (setf (processing sys) value))))
 
+(defun system-runnable (system)
+  "Asks whether a system is runnable.
+   This only affects (do-system [system]) calls."
+  (multiple-value-bind (sys b)
+      (gethash system (ecs-systems *ecs*))
+    (when b
+      (runnable sys))))
+
+(defun system-iteration (system)
+  "Asks whether a system is processing.
+   This only affects (do-system [system]) calls."
+  (multiple-value-bind (sys b)
+      (gethash system (ecs-systems *ecs*))
+    (when b
+      (iteration sys))))
 
 (defun required-components (system)
   "Get a list of the specified system's required components."
@@ -99,9 +195,14 @@
           :for (id . e) :in (hash-table-alist (ecs-entities *ecs*))
           :for c = (components e)
           :when (or (not r)
-                    (and (listp r) (all r c))
-                    (and (eq r :none) (not c))
-                    (and (eq r :any) c))
+                    (and (listp r)
+                         (all (remove-if-not #'symbolp r) c)
+                         (every (lambda (g)
+                                  (case (car g)
+                                    (:not (not (any (cdr g) c)))
+                                    (:any (any (cdr g) c))
+                                    (:all (all (cdr g) c))))
+                                (remove-if-not #'listp r))))
             :collect id)))
 
 (defun system-entities (system)
@@ -115,34 +216,51 @@
 (defun cache-system-entities ()
   "Update the the list of entities for all systems."
   (loop :for system :in (all-systems)
-        :do (setf (system-entities system) (collect-system-entities system))))
+        :do (let ((new-entities (collect-system-entities system)))
+              (setf (system-entities system)
+                    new-entities)
+              (setf (runnable (gethash system (ecs-systems *ecs*)))
+                    (every #'identity new-entities)))))
 
-(defun duplicatesp (list)
-  (mapl (lambda (cdr) (if (eql (first cdr) (second cdr))
-                          (return-from duplicatesp T)))
-        (sort list '<)) nil)
+(defun duplicatesp (the-list &key (test #'eq))
+  (loop named check
+        for x in the-list
+        for i from 0
+        do (loop for y in the-list
+                 for j from 0
+                 if (and (not (eq i j))
+                         (funcall test x y))
+                   do (return-from check t))
+        finally (return-from check nil)))
 
 (defmethod do-system (system)
   "Execute the specified system. The system definition's grouping determines
 parallel processing of entities."
   (when (system-processing system)
     (let ((result))
-      (apply #'metatilities:map-combinations
-             (lambda (&rest x)
-               ;; Prevent entities from comparing themselves if they match multiple families
-               (when (not (duplicatesp x))
-                 (setf result (apply #'%do-entities system x)))
-               )
-             (system-entities system))
-      (when (eq *graveyard* 'remove-all)
-         (delete-all-entities)
-         (setf *graveyard* (list)))
-       (loop :for e :in *graveyard*
-             do (delete-entity e))
+      (loop :for g :in (system-entities system)
+            :do (loop :for e-num :in g
+                      :do (loop :for flag being the hash-keys of (blame-flags (gethash e-num (ecs-entities *ecs*)))
+                                  :using (hash-value sys)
+                                :if (eq sys system)
+                                  :do ;;(progn
+                                      (setf (gethash flag (flags (gethash e-num (ecs-entities *ecs*)))) nil))))
+
+      (when (every #'identity (system-entities system))
+        (apply #'metatilities:map-combinations
+               (lambda (&rest x)
+                 ;; Prevent entities from comparing themselves if they match multiple families
+                 (when (not (duplicatesp x))
+                   (setf result (apply #'%do-entities system x))))
+               (system-entities system)))
+      
+      ;; delete entities at the end of each system processing
+      (cremate-dead-entities)
       result)))
 
 (defun cycle-systems ()
   "Cycle through all defined systems."
   (dolist (system (all-systems))
-    (do-system system)))
+    (do-system system))
+  (cremate-dead-entities))
 

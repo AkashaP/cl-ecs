@@ -1,7 +1,9 @@
 (in-package :cl-ecs)
 
 (defvar *ecs* nil)
-(defvar *graveyard* (list))
+(defvar *graveyard* nil)
+(defvar *system-names* nil)
+(defvar *flags* nil)
 
 (defstruct ecs
   (entities (make-hash-table))
@@ -12,6 +14,8 @@
   "Initialize a new ECS system."
   (let ((id 0))
     (setf *ecs* (make-ecs))
+    (setf *system-names* (list))
+    (setf *flags* (make-hash-table))
     (defun new-id ()
       (incf id))
     (values)))

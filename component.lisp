@@ -3,7 +3,8 @@
 (defstruct (component (:conc-name nil))
   fields)
 
-(defmacro defcomponent (name &body (fields))
+;; the let form should expand into a let* so that it can access the previous values
+(defmacro defcomponent (name &body fields)
   "Define a new component with the specified fields.
 Also defines accessors for each field to be used on an entity."
   (let ((field-list (mapcar (lambda (x)
