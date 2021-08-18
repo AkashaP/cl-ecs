@@ -41,11 +41,15 @@
            #:entity-attr
            #:entity-exists-p
            #:defsys
+           #:defsysl
            #:required-components
            #:system-grouping
            #:system-processing
+           #:all-systems
            #:do-system
+           #:do-cycle-systems
            #:cycle-systems
+           #:cremate-dead-entities
            #:ack
            #:get-ack))
 
