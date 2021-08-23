@@ -61,8 +61,8 @@
                           :required ',(mapcar #'cadr letargs)
                           :grouping ',(mapcar #'car letargs)
                           :iteration #'default-process))
-       (remove ',name *system-names*)
-       (setf *system-names* (append *system-names* '(,name)))
+       (if (not (member ',name *system-names*))
+           (setf *system-names* (nconc *system-names* '(,name))))
        (cache-system-entities)
        (defmethod %do-entities ((system (eql ',name)) &rest ,entities)
          (block ,name
