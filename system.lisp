@@ -1,12 +1,13 @@
 (in-package :cl-ecs)
 
 (defstruct (system (:conc-name nil))
-  processing
+  processing ; master flag on whether system gets to update
   required
   grouping
   entities
-  iteration ;; what kind of iteration function to use on the entities
-  runnable) ;; flag when grouping is sufficient to perform iteration
+  dismembered ; temporary list of entities that were removed from family
+  iteration ; what kind of iteration function to use on the entities
+  runnable) ; flag when grouping is sufficient to perform iteration
 
 ;; in most ECS a System owns one family, and uses the family matching patterns "All", "Any" and "None" but i find "All" the only sensible choice, especially since if you use "Any" you might have to distinctify each component in the system logic, defeating the purpose of ECS caching entities for us already
 ;; it also tends to treat all entities with similar behaviour, which I don't feel is the purpose of ECS
@@ -34,13 +35,17 @@
    When executed, The groupings (the cars of letargs) determines the
    parallel processing of entities who match the cdrs of letargs."
   (let ((entities (gensym)))
-    `(labels ((flag (id &rest flags-to-set)
+    `(labels (; This is here to shadow the system for blaming flags
+              ;; blaming allows flags to reset for the system that set it before its next iteration. 
+              (flag (id &rest flags-to-set)
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
                     (map nil (lambda (x)
                                (setf (gethash x eflags) t)
                                (setf (gethash x eblame) ',name))
                          flags-to-set))))
+              
+              ;; Blaming on marks is mostly a debugging feature and not used for game logic.
               (mark (id &rest marks-to-set)
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
@@ -74,13 +79,17 @@
    When executed, The letargs are respectively bound to all matching entities.
    The entities may be processed by manually looping over the cars of letargs in any way desired."
   (let ((entities (gensym)))
-    `(labels ((flag (id &rest flags-to-set)
+    `(labels (; This is here to shadow the system for blaming flags
+              ;; blaming allows flags to reset for the system that set it before its next iteration.
+              (flag (id &rest flags-to-set)
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
                     (map nil (lambda (x)
                                (setf (gethash x eflags) t)
                                (setf (gethash x eblame) ',name))
                          flags-to-set))))
+              
+              ;; Blaming on marks is mostly a debugging feature and not used for game logic.
               (mark (id &rest marks-to-set)
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
@@ -111,41 +120,6 @@
      (defsys ,name ,letargs ,@body)
      (setf (iteration (gethash ',name (ecs-systems *ecs*))) #'manual-process)))
 
-;;TODO verify letargs correctness
-;; (defmacro defsys (name (&rest letargs) (&key iteration-function) &body body)
-;;   (let ((entities (gensym)))
-;;     `(labels ((flag (id &rest flags-to-set)
-;;                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
-;;                   (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
-;;                     (map nil (lambda (x)
-;;                                (setf (gethash x eflags) t)
-;;                                (setf (gethash x eblame) ',name))
-;;                          flags-to-set))))
-;;               (mark (id &rest marks-to-set)
-;;                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
-;;                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
-;;                     (map nil (lambda (x)
-;;                                (setf (gethash x emarks) t)
-;;                                (setf (gethash x eblame) ',name))
-;;                          marks-to-set))))
-;;               (demk (id &rest marks-to-set)
-;;                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
-;;                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
-;;                     (map nil (lambda (x)
-;;                                (setf (gethash x emarks) nil)
-;;                                (setf (gethash x eblame) ',name))
-;;                          marks-to-set)))))
-;;        (setf (gethash ',name (ecs-systems *ecs*))
-;;              (make-system :processing t
-;;                           :required ',(mapcar #'cadr letargs)
-;;                           :grouping ',(mapcar #'car letargs)))
-;;        (setf *system-names* (append *system-names* '(,name)))
-;;        (cache-system-entities)
-;;        (defmethod %do-entities ((system (eql ',name)) &rest ,entities)
-;;          (block ,name
-;;            (destructuring-bind ,(mapcar #'car letargs) ,entities
-;;              ,@body))))))
-
 (defun mark (id &rest marks-to-set)
   "Turns on a mark"
   (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
@@ -164,26 +138,11 @@
                  (setf (gethash x eblame) nil))
            marks-to-set))))
 
-(defmacro defsys-old (name (required grouping) &body body)
-  "Define a new system."
-  (let ((entities (gensym)))
-    `(progn
-       (setf (gethash ',name (ecs-systems *ecs*))
-             (make-system :required ',required
-                          :grouping ',grouping))
-       (cache-system-entities)
-       (defmethod %do-entities ((system (eql ',name)) &rest ,entities)
-         (block ,name
-           (destructuring-bind ,grouping ,entities
-             ,@body))))))
-
 (defgeneric %do-entities (system &rest entities))
 
 (defun all-systems ()
   "Get a list of all defined systems."
-  ;;(hash-table-keys (ecs-systems *ecs*))
-  *system-names*
-  )
+  *system-names*)
 
 (defun system-processing (system)
   "Asks whether a system is processing.
@@ -259,6 +218,15 @@
   "Update the the list of entities for all systems."
   (loop :for system :in (all-systems)
         :do (let ((new-entities (collect-system-entities system)))
+              ;; Reset the flags for entities that no longer participate in system
+              (setf (system-dismebered system)
+                    (loop :for group :in (system-entities system) 
+                          :nconc (loop :for entity :in group
+                                       :if (not (member entity new-entities))
+                                         :collect entity
+                                       ;; :do
+                                       ;;    (reset-flags entity system)
+                                       )))
               (setf (system-entities system)
                     new-entities)
               (setf (runnable (gethash system (ecs-systems *ecs*)))
@@ -290,51 +258,44 @@
 (defun manual-process (system system-entities)
   (apply #'%do-entities system system-entities))
 
+(defun reset-flags (entity system)
+  "Resets the flags in entity that were caused by system to NIL."
+  (loop :for flag being the hash-keys of (blame-flags (gethash entity (ecs-entities *ecs*)))
+          :using (hash-value sys)
+        :if (eq sys system)
+          :do (setf (gethash flag (flags (gethash entity (ecs-entities *ecs*)))) nil)))
+
 (defmethod do-system (system)
   "Execute the specified system."
   (when (system-processing system)
     ;; Reset flags that were set by this system previously
-    (loop :for g :in (system-entities system)
-          :do (loop :for e-num :in g
-                    :do (loop :for flag being the hash-keys of (blame-flags (gethash e-num (ecs-entities *ecs*)))
-                                :using (hash-value sys)
-                              :if (eq sys system)
-                                :do ;;(progn
-                                    (setf (gethash flag (flags (gethash e-num (ecs-entities *ecs*)))) nil))))
+    ;; This is bugged, if entity no longer part of system, then its flag wont get reset
+    (loop :for group :in (system-entities system)
+          :do (loop :for entity :in group
+                    :do (reset-flags entity system)))
+
+    (when (system-dismembered system)
+      (loop :for x :in system-dismembered
+            :do (reset-flags x system))
+      (setf (system-dismembered system) '()))
+    
     (let ((result (funcall (system-iteration system) system (system-entities system))))
-      ;; delete entities at the end of each system processing
+      ;; delete removed entities only at the end of each system processing
       (cremate-dead-entities)
       result)))
-
-;; (defmethod do-system (system)
-;;   "Execute the specified system. The system definition's grouping determines
-;; parallel processing of entities."
-;;   (when (system-processing system)
-;;     (let ((result))
-;;       (loop :for g :in (system-entities system)
-;;             :do (loop :for e-num :in g
-;;                       :do (loop :for flag being the hash-keys of (blame-flags (gethash e-num (ecs-entities *ecs*)))
-;;                                   :using (hash-value sys)
-;;                                 :if (eq sys system)
-;;                                   :do ;;(progn
-;;                                       (setf (gethash flag (flags (gethash e-num (ecs-entities *ecs*)))) nil))))
-
-;;       (when (every #'identity (system-entities system))
-;;         (apply #'metatilities:map-combinations
-;;                (lambda (&rest x)
-;;                  ;; Prevent entities from comparing themselves if they match multiple families
-;;                  (when (not (duplicatesp x))
-;;                    (setf result (apply #'%do-entities system x))))
-;;                (system-entities system)))
-;;       ;; delete entities at the end of each system processing
-;;       (cremate-dead-entities)
-;;       result)))
 
 (defun cycle-systems ()
   "Cycle through all defined systems."
   (dolist (system (all-systems))
     (do-system system))
   (cremate-dead-entities))
+
+
+
+;; This is really about integrating with CL-ECS
+;; I wonder if i should borrow the :around idea like in CLOS for this
+;; otherwise I have to export private symbols like cremate-dead-entities
+;; just so user can create their own custom cycling logic
 
 (defmacro do-cycle-systems ((sys-name) &body body)
   "Cycle through all defined systems with custom logic before doing each system."
