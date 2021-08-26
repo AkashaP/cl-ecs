@@ -4,8 +4,8 @@
   components
   attributes
   tags ;; static data
-  (flags (make-hash-table)) ;; dynamic 'garbageless' bit field, reset every frame, for every system to process
-  (blame-flags (make-hash-table)) ;; map of flags to system who modified it. mostly for debugging
+  (flags (make-hash-table)) ;; temporal flags, reset every frame before the system body that set it, for every system to process
+  (blame-flags (make-hash-table)) ;; map of flags to system who modified it
   (marks (make-hash-table))  
   (blame-marks (make-hash-table)))
 

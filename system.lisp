@@ -1,12 +1,12 @@
 (in-package :cl-ecs)
 
 (defstruct (system (:conc-name nil))
-  processing ; master flag on whether system gets to update
+  processing
+  grouping   ; means either individual entities (defsys) or the entire group (defsysl)
   required
-  grouping
   entities
-  dismembered ; temporary list of entities that were removed from family
-  iteration ; what kind of iteration function to use on the entities
+  dismembered ; temporary list of entities that were removed from family for resetting flags
+  iteration ; whether grouping uses default iteration (defsys) or manual iteration (defsysl)
   runnable) ; flag when grouping is sufficient to perform iteration
 
 ;; in most ECS a System owns one family, and uses the family matching patterns "All", "Any" and "None" but i find "All" the only sensible choice, especially since if you use "Any" you might have to distinctify each component in the system logic, defeating the purpose of ECS caching entities for us already
@@ -62,9 +62,9 @@
                          marks-to-set)))))
        (declare (ignorable #'flag #'mark #'demk))
        (setf (gethash ',name (ecs-systems *ecs*))
-             (make-system :processing t
-                          :required ',(mapcar #'cadr letargs)
+             (make-system :processing t 
                           :grouping ',(mapcar #'car letargs)
+                          :required ',(mapcar #'cadr letargs)
                           :iteration #'default-process))
        (if (not (member ',name *system-names*))
            (setf *system-names* (nconc *system-names* '(,name))))
@@ -77,7 +77,8 @@
 (defmacro defsysl (name (&rest letargs) &body body)
   "Defines a system.
    When executed, The letargs are respectively bound to all matching entities.
-   The entities may be processed by manually looping over the cars of letargs in any way desired."
+   The entities may be processed by manually looping over the cars of letargs in any way desired.
+   Usually want to start off the body with some sort of loop over the cars of letargs."
   (let ((entities (gensym)))
     `(labels (; This is here to shadow the system for blaming flags
               ;; blaming allows flags to reset for the system that set it before its next iteration.
@@ -218,15 +219,16 @@
   "Update the the list of entities for all systems."
   (loop :for system :in (all-systems)
         :do (let ((new-entities (collect-system-entities system)))
-              ;; Reset the flags for entities that no longer participate in system
-              (setf (system-dismebered system)
-                    (loop :for group :in (system-entities system) 
-                          :nconc (loop :for entity :in group
-                                       :if (not (member entity new-entities))
-                                         :collect entity
-                                       ;; :do
-                                       ;;    (reset-flags entity system)
-                                       )))
+              ;; Record the entities that no longer participate in system temporarily (reset via #'do-system)
+              (setf (dismembered (gethash system (ecs-systems *ecs*)))
+                    ;; The entity could jump in and out of each system's cache
+                    ;; multiple times per frame, so we append to it
+                    (append (dismembered (gethash system (ecs-systems *ecs*)))
+                            (loop :for group :in (system-entities system)
+                                  :for new-g :in new-entities
+                                  :nconc (loop :for entity :in group
+                                               :if (not (member entity new-g))
+                                                 :collect entity))))
               (setf (system-entities system)
                     new-entities)
               (setf (runnable (gethash system (ecs-systems *ecs*)))
@@ -268,19 +270,21 @@
 (defmethod do-system (system)
   "Execute the specified system."
   (when (system-processing system)
+    
     ;; Reset flags that were set by this system previously
-    ;; This is bugged, if entity no longer part of system, then its flag wont get reset
     (loop :for group :in (system-entities system)
           :do (loop :for entity :in group
                     :do (reset-flags entity system)))
-
-    (when (system-dismembered system)
+    
+    ;; Reset the flags for entities that no longer participate in system but had flags set by it.
+    (when-let ((system-dismembered (dismembered (gethash system (ecs-systems *ecs*)))))
       (loop :for x :in system-dismembered
             :do (reset-flags x system))
-      (setf (system-dismembered system) '()))
-    
+      (setf (dismembered (gethash system (ecs-systems *ecs*))) '()))
+
+    ;; Iterate the system using its system iteration function
     (let ((result (funcall (system-iteration system) system (system-entities system))))
-      ;; delete removed entities only at the end of each system processing
+      ;; delete removed entities only at the end of each system processing to not mess up iteration.
       (cremate-dead-entities)
       result)))
 
@@ -294,7 +298,7 @@
 
 ;; This is really about integrating with CL-ECS
 ;; I wonder if i should borrow the :around idea like in CLOS for this
-;; otherwise I have to export private symbols like cremate-dead-entities
+;; otherwise I have to export private symbols like cremate-dead-entities/user has to fork library
 ;; just so user can create their own custom cycling logic
 
 (defmacro do-cycle-systems ((sys-name) &body body)
