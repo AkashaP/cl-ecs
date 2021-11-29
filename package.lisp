@@ -52,6 +52,7 @@
            #:cycle-systems
            #:cremate-dead-entities
            #:ack
-           #:get-ack))
+           #:get-ack
+           #:*ecs*))
 
 (in-package :cl-ecs)

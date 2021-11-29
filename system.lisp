@@ -65,8 +65,8 @@
                           :grouping ',(mapcar #'car letargs)
                           :required ',(mapcar #'cadr letargs)
                           :iteration #'default-process))
-       (if (not (member ',name *system-names*))
-           (setf *system-names* (nconc *system-names* '(,name))))
+       (if (not (member ',name (ecs-system-names *ecs*)))
+           (setf (ecs-system-names *ecs*) (nconc (ecs-system-names *ecs*) '(,name))))
        (cache-system-entities)
        (defmethod %do-entities ((system (eql ',name)) &rest ,entities)
          ;; (declare (optimize (debug 3) (safety 3) (space 0) (speed 0)))
@@ -114,8 +114,8 @@
                           :required ',(mapcar #'cadr letargs)
                           :grouping ',(mapcar #'car letargs)
                           :iteration #'manual-process))
-       (remove ',name *system-names*)
-       (setf *system-names* (append *system-names* '(,name)))
+       (remove ',name (ecs-system-names *ecs*))
+       (setf (ecs-system-names *ecs*) (append (ecs-system-names *ecs*) '(,name)))
        (cache-system-entities)
        (defmethod %do-entities ((system (eql ',name)) ,@(mapcar #'car letargs))
          (block ,name
@@ -144,7 +144,7 @@
 
 (defun all-systems ()
   "Get a list of all defined systems."
-  *system-names*)
+  (ecs-system-names *ecs*))
 
 (defun system-processing (system)
   "Asks whether a system is processing.
