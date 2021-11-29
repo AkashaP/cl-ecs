@@ -37,23 +37,22 @@
   (let ((entities (gensym)))
     `(labels (; This is here to shadow the system for blaming flags
               ;; blaming allows flags to reset for the system that set it before its next iteration. 
-              (flag (id &rest flags-to-set)
+              (flag (id flag &optional (value t);&rest flags-to-set
+                               )
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
-                    (map nil (lambda (x)
-                               (setf (gethash x eflags) t)
-                               (setf (gethash x eblame) ',name))
-                         flags-to-set))))
+                    (setf (gethash flag eflags) value)
+                    (setf (gethash flag eblame) ',name))))
               
               ;; Blaming on marks is mostly a debugging feature and not used for game logic.
-              (mark (id &rest marks-to-set)
+              (mark (id mark &optional (value t);&rest marks-to-set
+                               )
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
-                    (map nil (lambda (x)
-                               (setf (gethash x emarks) t)
-                               (setf (gethash x eblame) ',name))
-                         marks-to-set))))
-              (demk (id &rest marks-to-set)
+                    (setf (gethash mark emarks) value)
+                    (setf (gethash mark eblame) ',name))))
+              (demk (id &rest marks-to-set
+                          )
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
                     (map nil (lambda (x)
@@ -70,6 +69,7 @@
            (setf *system-names* (nconc *system-names* '(,name))))
        (cache-system-entities)
        (defmethod %do-entities ((system (eql ',name)) &rest ,entities)
+         ;; (declare (optimize (debug 3) (safety 3) (space 0) (speed 0)))
          (block ,name
            (destructuring-bind ,(mapcar #'car letargs) ,entities
              ,@body))))))
@@ -82,23 +82,26 @@
   (let ((entities (gensym)))
     `(labels (; This is here to shadow the system for blaming flags
               ;; blaming allows flags to reset for the system that set it before its next iteration.
-              (flag (id &rest flags-to-set)
+              (flag (id mark &optional (value t);&rest flags-to-set
+                               )
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
                     (map nil (lambda (x)
-                               (setf (gethash x eflags) t)
+                               (setf (gethash x eflags) value)
                                (setf (gethash x eblame) ',name))
                          flags-to-set))))
               
               ;; Blaming on marks is mostly a debugging feature and not used for game logic.
-              (mark (id &rest marks-to-set)
+              (mark (id mark &optional (value t);&rest marks-to-set
+                               )
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
                     (map nil (lambda (x)
-                               (setf (gethash x emarks) t)
+                               (setf (gethash x emarks) value)
                                (setf (gethash x eblame) ',name))
                          marks-to-set))))
-              (demk (id &rest marks-to-set)
+              (demk (id &rest marks-to-set
+                          )
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
                     (map nil (lambda (x)
@@ -121,14 +124,12 @@
      (defsys ,name ,letargs ,@body)
      (setf (iteration (gethash ',name (ecs-systems *ecs*))) #'manual-process)))
 
-(defun mark (id &rest marks-to-set)
+(defun mark (id mark value)
   "Turns on a mark"
   (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
     (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
-      (map nil (lambda (x)
-                 (setf (gethash x emarks) t)
-                 (setf (gethash x eblame) nil))
-           marks-to-set))))
+      (setf (gethash mark emarks) t)
+      (setf (gethash mark eblame) nil))))
 
 (defun demk (id &rest marks-to-set)
   "Turns off a mark"
@@ -288,6 +289,7 @@
       (cremate-dead-entities)
       result)))
 
+#+sb-ext:deprecated
 (defun cycle-systems ()
   "Cycle through all defined systems."
   (dolist (system (all-systems))
@@ -301,11 +303,11 @@
 ;; otherwise I have to export private symbols like cremate-dead-entities/user has to fork library
 ;; just so user can create their own custom cycling logic
 
-(defmacro do-cycle-systems ((sys-name) &body body)
-  "Cycle through all defined systems with custom logic before doing each system."
+(defmacro with-cycle-systems ((sys-argn &optional systems &key (cleanup t)) &body body)
+  "Macro for systems iteration with safety cleanup processes"
   `(progn
-     (dolist (,sys-name (all-systems))
-       ,@body
-       (do-system ,sys-name))
-     (cremate-dead-entities)))
-
+     (dolist (,sys-name ,systems)
+       ,@body)
+     ,(if cleanup
+          ;; This shouldn't really happen since systems call already cleans up.
+          '(cremate-dead-entities))))

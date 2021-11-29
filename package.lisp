@@ -21,6 +21,7 @@
            #:entity-marks
            #:entity-blame-flags
            #:entity-blame-marks
+           #:flag-p
            #:all-tags-p
            #:some-tags-p
            #:no-tags-p

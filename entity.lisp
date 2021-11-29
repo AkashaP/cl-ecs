@@ -85,7 +85,7 @@
   (symbol-macrolet ((all (entity-tags id)))
     (map nil (lambda (x) (deletef all x)) tags)))
 
-(defun flag (id &rest flags)
+(defun flag (id flag &optional (value t)) ;&rest flags
   "Turns on a temporary flag that lasts until the next iteration of the system it was toggled in")
 
 (defun entity-flags (id)
@@ -120,6 +120,9 @@
   (symbol-macrolet ((eflags (flags (gethash id (ecs-entities *ecs*)))))
     (notany (lambda (x) (gethash x eflags)) flags)))
 
+(defun flag-p (flag)
+  (gethash flag (flags (gethash id (ecs-entities *ecs*)))))
+
 (defun unmark-flags (id)
   (symbol-macrolet ((eflags (flags (gethash id (ecs-entities *ecs*)))))
     (loop for x being the hash-keys of eflags
@@ -141,6 +144,9 @@
 (defun no-marks-p (id &rest marks)
   (symbol-macrolet ((emarks (marks (gethash id (ecs-entities *ecs*)))))
     (notany (lambda (x) (gethash x emarks)) marks)))
+
+(defun mark-p (id mark)
+  (gethash mark (marks (gethash id (ecs-entities *ecs*)))))
 
 (defun unmark-marks (id)
   (symbol-macrolet ((emarks (marks (gethash id (ecs-entities *ecs*)))))
