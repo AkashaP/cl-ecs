@@ -306,7 +306,7 @@
 (defmacro with-cycle-systems ((sys-argn &optional systems &key (cleanup t)) &body body)
   "Macro for systems iteration with safety cleanup processes"
   `(progn
-     (dolist (,sys-name ,systems)
+     (dolist (,sys-argn ,systems)
        ,@body)
      ,(if cleanup
           ;; This shouldn't really happen since systems call already cleans up.

@@ -36,7 +36,8 @@
            #:all-marks-p
            #:some-marks-p
            #:no-marks-p
-           #:mark
+           #:mark 
+           #:mark-p
            #:demk
            #:entity-attrs
            #:entity-attr
@@ -48,7 +49,8 @@
            #:system-processing
            #:all-systems
            #:do-system
-           #:do-cycle-systems
+           #:do-cycle-systems 
+           #:with-cycle-systems
            #:cycle-systems
            #:cremate-dead-entities
            #:ack
