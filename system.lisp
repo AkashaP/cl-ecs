@@ -128,7 +128,7 @@
   "Turns on a mark"
   (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
     (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
-      (setf (gethash mark emarks) t)
+      (setf (gethash mark emarks) value)
       (setf (gethash mark eblame) nil))))
 
 (defun demk (id &rest marks-to-set)
@@ -197,15 +197,19 @@
         (loop
           :for (id . e) :in (hash-table-alist (ecs-entities *ecs*))
           :for c = (components e)
-          :when (or (not r)
-                    (and (listp r)
-                         (all (remove-if-not #'symbolp r) c)
-                         (every (lambda (g)
-                                  (case (car g)
-                                    (:not (not (any (cdr g) c)))
-                                    (:any (any (cdr g) c))
-                                    (:all (all (cdr g) c))))
-                                (remove-if-not #'listp r))))
+          :when (and (not (member e (ecs-graveyard *ecs*)))
+                     (or
+                      (not r)
+                      (and (listp r)
+                           (if-let ((a (remove-if-not #'symbolp r)))
+                             (all a c)
+                             t)
+                           (every (lambda (g)
+                                    (case (car g)
+                                      (:not (not (any (cdr g) c)))
+                                      (:any (any (cdr g) c))
+                                      (:all (all (cdr g) c))))
+                                  (remove-if-not #'listp r)))))
             :collect id)))
 
 (defun system-entities (system)
@@ -228,7 +232,10 @@
                             (loop :for group :in (system-entities system)
                                   :for new-g :in new-entities
                                   :nconc (loop :for entity :in group
-                                               :if (not (member entity new-g))
+                                               :if (and
+                                                    (entity-exists-p entity)
+                                                    (not (member entity (ecs-graveyard *ecs*)))
+                                                    (not (member entity new-g)))
                                                  :collect entity))))
               (setf (system-entities system)
                     new-entities)
@@ -268,6 +275,16 @@
         :if (eq sys system)
           :do (setf (gethash flag (flags (gethash entity (ecs-entities *ecs*)))) nil)))
 
+(defun cremate-dead-entities ()
+  (when (eq (ecs-graveyard *ecs*) 'remove-all)
+    (delete-all-entities)
+    (setf (ecs-graveyard *ecs*) (list)))
+  (loop :for e :in (ecs-graveyard *ecs*)
+        :do (delete-entity e)
+        :finally
+           (setf (ecs-graveyard *ecs*); (delete-if #'identity (ecs-graveyard *ecs*))
+                 (list))))
+
 (defmethod do-system (system)
   "Execute the specified system."
   (when (system-processing system)
@@ -281,7 +298,7 @@
     (when-let ((system-dismembered (dismembered (gethash system (ecs-systems *ecs*)))))
       (loop :for x :in system-dismembered
             :do (reset-flags x system))
-      (setf (dismembered (gethash system (ecs-systems *ecs*))) '()))
+      (setf (dismembered (gethash system (ecs-systems *ecs*))) (list)))
 
     ;; Iterate the system using its system iteration function
     (let ((result (funcall (system-iteration system) system (system-entities system))))

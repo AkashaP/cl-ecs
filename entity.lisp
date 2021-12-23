@@ -196,11 +196,11 @@
 
 (defun remove-entity (id)
   "Stages an entity to be removed."
-  (push id *graveyard*))
+  (push id (ecs-graveyard *ecs*)))
 
 (defun remove-all-entities ()
   "Stages all entities to be removed."
-  (setf *graveyard* 'remove-all))
+  (setf (ecs-graveyard *ecs*) 'remove-all))
 
 (defun delete-entity (id)
   "Remove an entity.
@@ -215,10 +215,3 @@
     (loop for id in es
           do (remhash id (ecs-entities *ecs*)))
     (cache-system-entities)))
-
-(defun cremate-dead-entities ()
-  (when (eq *graveyard* 'remove-all)
-    (delete-all-entities)
-    (setf *graveyard* (list)))
-  (loop :for e :in *graveyard*
-        :do (delete-entity e)))
