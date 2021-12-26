@@ -120,7 +120,7 @@
   (symbol-macrolet ((eflags (flags (gethash id (ecs-entities *ecs*)))))
     (notany (lambda (x) (gethash x eflags)) flags)))
 
-(defun flag-p (flag)
+(defun flag-p (id flag)
   (gethash flag (flags (gethash id (ecs-entities *ecs*)))))
 
 (defun unmark-flags (id)
