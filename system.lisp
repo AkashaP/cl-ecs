@@ -190,27 +190,62 @@
   (grouping (gethash system (ecs-systems *ecs*))))
 
 (defun collect-system-entities (system)
-  "Create a list of all of a system's entities."
-  (loop :with rs = (required-components system)
-        :for r :in rs
-        collect
-        (loop
-          :for (id . e) :in (hash-table-alist (ecs-entities *ecs*))
-          :for c = (components e)
-          :when (and (not (member e (ecs-graveyard *ecs*)))
-                     (or
-                      (not r)
-                      (and (listp r)
-                           (if-let ((a (remove-if-not #'symbolp r)))
-                             (all a c)
-                             t)
-                           (every (lambda (g)
-                                    (case (car g)
-                                      (:not (not (any (cdr g) c)))
-                                      (:any (any (cdr g) c))
-                                      (:all (all (cdr g) c))))
-                                  (remove-if-not #'listp r)))))
-            :collect id)))
+  "Create a list of all of a system's entities matching requirements.
+If an entity satisfies multiple groups, it is put in the first matching group specified only."
+  ;; Variant that duplicates entities across families
+  ;; (loop :with rs = (required-components system)
+  ;;       :for r :in rs
+  ;;       collect
+  ;;       (loop
+  ;;         :for (id . e) :in (hash-table-alist (ecs-entities *ecs*))
+  ;;         :for c = (components e)
+  ;;         :when (and (not (member e (ecs-graveyard *ecs*)))
+  ;;                    (or
+  ;;                     (not r)
+  ;;                     (and (listp r)
+  ;;                          (if-let ((a (remove-if-not #'symbolp r)))
+  ;;                            (all a c)
+  ;;                            t)
+  ;;                          (every (lambda (g)
+  ;;                                   (case (car g)
+  ;;                                     (:not (not (any (cdr g) c)))
+  ;;                                     (:any (any (cdr g) c))
+  ;;                                     (:all (all (cdr g) c))))
+  ;;                                 (remove-if-not #'listp r)))))
+  ;;           :collect id))
+  (let ((res
+          (loop :with rs = (required-components system)
+                :for r :in rs
+                collect
+                (loop
+                  :for (id . e) :in (hash-table-alist (ecs-entities *ecs*))
+                  :for c = (components e)
+                  :when (and (not (member e (ecs-graveyard *ecs*)))
+                             (or
+                              (not r)
+                              ;; Apply filters
+                              (and (listp r)
+                                   (if-let ((a (remove-if-not #'symbolp r)))
+                                     (all a c)
+                                     t)
+                                   (every (lambda (g)
+                                            (case (car g)
+                                              (:not (not (any (cdr g) c)))
+                                              (:any (any (cdr g) c))
+                                              (:all (all (cdr g) c))))
+                                          (remove-if-not #'listp r)))))
+                    :collect id))))
+
+    
+    ;; Delete duplicates across families, favouring towards head.
+    (setf res (nreverse res))
+    (loop for cell1 on res
+          do
+             (loop for fam2 in (cdr cell1)
+                   do (setf (car cell1) (nset-difference (car cell1) fam2))))
+    (setf res (nreverse res))
+
+    res))
 
 (defun system-entities (system)
   "Get a list of all of a system's entities."
@@ -260,8 +295,9 @@
              (lambda (&rest x)
                ;; Prevent entities from comparing themselves if they match multiple families
                ;; by simply skipping them
-               (when (not (duplicatesp x))
-                 (setq result (apply #'%do-entities system x))))
+               ;; (when (not (duplicatesp x))) ; no need to do this anymore because...
+               ;; cache-system-entities now prevents dupes across families as well as prevent symmetrical matches.
+               (setq result (apply #'%do-entities system x)))
              system-entities))
     result))
 
@@ -297,7 +333,8 @@
     ;; Reset the flags for entities that no longer participate in system but had flags set by it.
     (when-let ((system-dismembered (dismembered (gethash system (ecs-systems *ecs*)))))
       (loop :for x :in system-dismembered
-            :do (reset-flags x system))
+            :if (entity-exists-p x)
+              :do (reset-flags x system))
       (setf (dismembered (gethash system (ecs-systems *ecs*))) (list)))
 
     ;; Iterate the system using its system iteration function
