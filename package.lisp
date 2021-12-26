@@ -55,6 +55,10 @@
            #:cremate-dead-entities
            #:ack
            #:get-ack
+           #:schedule 
+           #:do-schedule 
+           #:cache-schedules 
+           #:defschedule
            #:*ecs*))
 
 (in-package :cl-ecs)

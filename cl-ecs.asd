@@ -12,5 +12,6 @@
                (:file "util")
                (:file "ecs")
                (:file "entity")
-               (:file "component")
+               (:file "component") 
+               (:file "schedule")
                (:file "system")))

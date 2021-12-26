@@ -6,6 +6,7 @@
   (entities (make-hash-table))
   (components (make-hash-table))
   (systems (make-hash-table))
+  (schedules (make-hash-table))
   (system-names (list))
   (graveyard (list)))
 

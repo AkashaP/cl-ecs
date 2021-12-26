@@ -37,22 +37,19 @@
   (let ((entities (gensym)))
     `(labels (; This is here to shadow the system for blaming flags
               ;; blaming allows flags to reset for the system that set it before its next iteration. 
-              (flag (id flag &optional (value t);&rest flags-to-set
-                               )
+              (flag (id flag &optional (value t))
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
                     (setf (gethash flag eflags) value)
                     (setf (gethash flag eblame) ',name))))
               
               ;; Blaming on marks is mostly a debugging feature and not used for game logic.
-              (mark (id mark &optional (value t);&rest marks-to-set
-                               )
+              (mark (id mark &optional (value t))
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
                     (setf (gethash mark emarks) value)
                     (setf (gethash mark eblame) ',name))))
-              (demk (id &rest marks-to-set
-                          )
+              (demk (id &rest marks-to-set)
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
                     (map nil (lambda (x)
@@ -68,11 +65,26 @@
        (if (not (member ',name (ecs-system-names *ecs*)))
            (setf (ecs-system-names *ecs*) (nconc (ecs-system-names *ecs*) '(,name))))
        (cache-system-entities)
+       
+       ;; (%add-to-schedules ',name)
+       (cache-schedules)
+
+       
+       ;; This declaration must be here so that on error Slime/Sly's backtrace 'db-show-frame-source' command
+       ;; will actually pinpoint the location in the function where it errored.
+       ;; Otherwise it wont do it correctly (in sbcl even with debug level 3).
+       (locally (declare (optimize (debug 3) (safety 3) (space 0) (speed 0))) 
+         ;; TODO remove above declaration on shipping (or figure out a way to automate it)
+         ;; (maybe even declare two methods under different optimization levels and switch between them
+         ;; at runtime by command)
+       
        (defmethod %do-entities ((system (eql ',name)) &rest ,entities)
-         ;; (declare (optimize (debug 3) (safety 3) (space 0) (speed 0)))
+         ;; TODO check the speed effect of this (stack-allocated &rest list)
+         ;; (declare (dynamic-extent ,entities))           
+         
          (block ,name
            (destructuring-bind ,(mapcar #'car letargs) ,entities
-             ,@body))))))
+             ,@body)))))))
 
 (defmacro defsysl (name (&rest letargs) &body body)
   "Defines a system.
@@ -82,8 +94,7 @@
   (let ((entities (gensym)))
     `(labels (; This is here to shadow the system for blaming flags
               ;; blaming allows flags to reset for the system that set it before its next iteration.
-              (flag (id mark &optional (value t);&rest flags-to-set
-                               )
+              (flag (id mark &optional (value t))
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((eflags (flags e)) (eblame (blame-flags e)))
                     (map nil (lambda (x)
@@ -92,22 +103,16 @@
                          flags-to-set))))
               
               ;; Blaming on marks is mostly a debugging feature and not used for game logic.
-              (mark (id mark &optional (value t);&rest marks-to-set
-                               )
+              (mark (id mark &optional (value t))
                 (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
                   (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
                     (map nil (lambda (x)
                                (setf (gethash x emarks) value)
                                (setf (gethash x eblame) ',name))
                          marks-to-set))))
-              (demk (id &rest marks-to-set
-                          )
-                (symbol-macrolet ((e (gethash id (ecs-entities *ecs*))))
-                  (symbol-macrolet ((emarks (marks e)) (eblame (blame-marks e)))
-                    (map nil (lambda (x)
-                               (setf (gethash x emarks) nil)
-                               (setf (gethash x eblame) ',name))
-                         marks-to-set)))))
+              (demk (id &rest marks-to-set)
+                (dolist (m marks-to-set)
+                  (mark id m nil))))
        (declare (ignorable #'flag #'mark #'demk))
        (setf (gethash ',name (ecs-systems *ecs*))
              (make-system :processing t
@@ -117,6 +122,9 @@
        (remove ',name (ecs-system-names *ecs*))
        (setf (ecs-system-names *ecs*) (append (ecs-system-names *ecs*) '(,name)))
        (cache-system-entities)
+       
+       ;; (%add-to-schedules ',name) 
+       (cache-schedules)
        (defmethod %do-entities ((system (eql ',name)) ,@(mapcar #'car letargs))
          (block ,name
            ,@body))))
@@ -277,26 +285,11 @@ If an entity satisfies multiple groups, it is put in the first matching group sp
               (setf (runnable (gethash system (ecs-systems *ecs*)))
                     (every #'identity new-entities)))))
 
-(defun duplicatesp (the-list &key (test #'eq))
-  (loop named check
-        for x in the-list
-        for i from 0
-        do (loop for y in the-list
-                 for j from 0
-                 if (and (not (eq i j))
-                         (funcall test x y))
-                   do (return-from check t))
-        finally (return-from check nil)))
-
 (defun default-process (system system-entities)
   (let ((result))
     (when (every #'identity system-entities)
       (apply #'metatilities:map-combinations
              (lambda (&rest x)
-               ;; Prevent entities from comparing themselves if they match multiple families
-               ;; by simply skipping them
-               ;; (when (not (duplicatesp x))) ; no need to do this anymore because...
-               ;; cache-system-entities now prevents dupes across families as well as prevent symmetrical matches.
                (setq result (apply #'%do-entities system x)))
              system-entities))
     result))
@@ -318,7 +311,7 @@ If an entity satisfies multiple groups, it is put in the first matching group sp
   (loop :for e :in (ecs-graveyard *ecs*)
         :do (delete-entity e)
         :finally
-           (setf (ecs-graveyard *ecs*); (delete-if #'identity (ecs-graveyard *ecs*))
+           (setf (ecs-graveyard *ecs*)
                  (list))))
 
 (defmethod do-system (system)
@@ -338,19 +331,18 @@ If an entity satisfies multiple groups, it is put in the first matching group sp
       (setf (dismembered (gethash system (ecs-systems *ecs*))) (list)))
 
     ;; Iterate the system using its system iteration function
-    (let ((result (funcall (system-iteration system) system (system-entities system))))
-      ;; delete removed entities only at the end of each system processing to not mess up iteration.
-      (cremate-dead-entities)
-      result)))
+    ;; (let ((result (funcall (system-iteration system) system (system-entities system))))
+    (funcall (system-iteration system) system (system-entities system)) 
+    ;; delete removed entities only at the end of each system processing to not mess up iteration.
+    (cremate-dead-entities)
+    ;; result)
+    ))
 
-#+sb-ext:deprecated
 (defun cycle-systems ()
   "Cycle through all defined systems."
   (dolist (system (all-systems))
     (do-system system))
   (cremate-dead-entities))
-
-
 
 ;; This is really about integrating with CL-ECS
 ;; I wonder if i should borrow the :around idea like in CLOS for this
