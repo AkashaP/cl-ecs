@@ -108,15 +108,18 @@
 ;;   (symbol-macrolet ((eflags (flags id)))
 ;;     (map nil (lambda (x) (setf (gethash x flags) t)) eflags)))
 
-(defun all-flags-p (id &rest flags)
+(defun all-flags-p (id &rest flags) 
+  (declare (dynamic-extent flags))
   (symbol-macrolet ((eflags (flags (gethash id (ecs-entities *ecs*)))))
     (every (lambda (x) (gethash x eflags)) flags)))
 
-(defun some-flags-p (id &rest flags)
+(defun some-flags-p (id &rest flags) 
+  (declare (dynamic-extent flags))
   (symbol-macrolet ((eflags (flags (gethash id (ecs-entities *ecs*)))))
     (some (lambda (x) (gethash x eflags)) flags)))
 
-(defun no-flags-p (id &rest flags)
+(defun no-flags-p (id &rest flags) 
+  (declare (dynamic-extent flags))
   (symbol-macrolet ((eflags (flags (gethash id (ecs-entities *ecs*)))))
     (notany (lambda (x) (gethash x eflags)) flags)))
 
@@ -134,14 +137,17 @@
         (gethash flag (blame x)))))
 
 (defun all-marks-p (id &rest marks)
+  (declare (dynamic-extent marks))
   (symbol-macrolet ((emarks (marks (gethash id (ecs-entities *ecs*)))))
     (every (lambda (x) (gethash x emarks)) marks)))
 
-(defun some-marks-p (id &rest marks)
+(defun some-marks-p (id &rest marks) 
+  (declare (dynamic-extent marks))
   (symbol-macrolet ((emarks (marks (gethash id (ecs-entities *ecs*)))))
     (some (lambda (x) (gethash x emarks)) marks)))
 
-(defun no-marks-p (id &rest marks)
+(defun no-marks-p (id &rest marks) 
+  (declare (dynamic-extent marks))
   (symbol-macrolet ((emarks (marks (gethash id (ecs-entities *ecs*)))))
     (notany (lambda (x) (gethash x emarks)) marks)))
 

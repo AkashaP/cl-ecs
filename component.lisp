@@ -40,6 +40,7 @@ Also defines accessors for each field to be used on an entity."
   (setf (fields (gethash component (ecs-components *ecs*))) value))
 
 (defun add-component (id component attrs)
+  (declare (dynamic-extent attrs))
   "Add a new component to the specified entity."
   (when (member component (all-components))
     (pushnew component (entity-components id)))
